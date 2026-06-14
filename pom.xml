@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        WHY Spring Boot parent?
+        It gives us "bill of materials" (BOM) dependency management.
+        You declare dependencies WITHOUT versions — Spring Boot ensures
+        all versions are compatible with each other. This prevents the
+        classic "version hell" where Jackson 2.14 conflicts with Spring 6.1.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.3</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.asyncai</groupId>
+    <artifactId>async-ai-document-processor</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>async-ai-document-processor</name>
+    <description>Production-grade async AI document processing service</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <!-- Pin versions not managed by Spring Boot BOM -->
+        <!--   <langchain4j.version>1.1.0</langchain4j.version> -->
+           <flyway.version>10.8.1</flyway.version>
+           <springdoc.version>2.3.0</springdoc.version>
+           <testcontainers.version>1.19.6</testcontainers.version>
+       </properties>
+
+       <dependencies>
+
+           <!-- ============================================================
+                CORE WEB — Spring MVC REST APIs
+                WHY: Gives us @RestController, @RequestMapping, embedded Tomcat.
+                We chose Spring MVC (not WebFlux) because our team knows it,
+                most libraries support it, and we handle async via Kafka not
+                reactive streams.
+           ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             VALIDATION — @Valid, @NotNull, @Size on DTOs
+             WHY: Fail fast at the API boundary. Never let invalid data
+             reach your database or business logic.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             DATA JPA — ORM for PostgreSQL
+             WHY: Avoids boilerplate SQL for CRUD. We'll use native queries
+             for vector similarity search (pgvector) where JPA falls short.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             POSTGRESQL DRIVER
+             WHY: The JDBC driver that actually talks to PostgreSQL.
+             runtime scope: only needed at runtime, not compile time.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- ============================================================
+             FLYWAY — Database schema migrations
+             WHY: Version-controlled schema changes. Every DDL change is
+             a versioned SQL file committed to Git. No more "who ran that
+             ALTER TABLE in prod?" mysteries. Critical for team and CD.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+
+        <!-- ============================================================
+             KAFKA — Async messaging backbone
+             WHY: Decouples upload (fast) from processing (slow).
+             Provides durability (messages survive restarts), replay,
+             and backpressure for free.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             REDIS — Caching layer
+             WHY: Cache expensive GPT-4 responses. Later we'll add
+             semantic caching using vector similarity on Redis.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             LANGCHAIN4J — AI / RAG framework for Java
+             WHY: Provides ready-made abstractions for embeddings,
+             vector store integration, prompt templates, and RAG pipeline.
+             Much less boilerplate than calling OpenAI HTTP API directly.
+        ============================================================ -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-spring-boot-starter</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-pgvector</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+
+        <!-- ============================================================
+             ACTUATOR — Health checks, metrics endpoints
+             WHY: /actuator/health is used by Kubernetes liveness probes.
+             /actuator/prometheus is scraped by Prometheus for metrics.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             MICROMETER + PROMETHEUS — Metrics export
+             WHY: Micrometer is the "SLF4J for metrics" — it abstracts
+             metrics collection. The Prometheus registry exports in
+             Prometheus text format so Grafana can visualize them.
+        ============================================================ -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             SPRINGDOC OPENAPI — Swagger UI auto-generation
+             WHY: Zero-config API documentation from your annotations.
+             Invaluable for frontend teams and API consumers.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- ============================================================
+             LOMBOK — Boilerplate reduction
+             WHY: Eliminates getters/setters/constructors. Java verbosity
+             without Lombok wastes 40% of lines on plumbing code.
+             IMPORTANT: Always use @Builder over @AllArgsConstructor for
+             entities with many fields — it's more readable at call sites.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ============================================================
+             APACHE TIKA — Document text extraction
+             WHY: Extracts text from PDF, DOCX, XLSX, etc. in a unified API.
+             You don't want to write PDF parsing code yourself.
+        ============================================================ -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>2.9.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parsers-standard-package</artifactId>
+            <version>2.9.1</version>
+        </dependency>
+
+        <!-- ============================================================
+             TESTING
+        ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Testcontainers: spin up real PostgreSQL/Kafka in tests -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>kafka</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

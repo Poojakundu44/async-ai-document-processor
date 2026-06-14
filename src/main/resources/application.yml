@@ -1,0 +1,201 @@
+# ============================================================
+# WHY YAML over .properties?
+# YAML supports nesting which prevents the repetition in
+# application.properties ("spring.datasource.url", "spring.datasource.username"
+# etc.). YAML is also easier to read for complex configs.
+#
+# WHY multiple profiles (local, prod)?
+# You NEVER want the same DB/Kafka config in dev and prod.
+# Profiles let you override only what changes per environment.
+# Spring reads: application.yml first, then application-{profile}.yml
+# The active profile is set via: SPRING_PROFILES_ACTIVE=prod (env var in K8s)
+# ============================================================
+
+spring:
+  application:
+    name: async-ai-document-processor
+
+  # ============================================================
+  # DATABASE
+  # WHY HikariCP? It's the fastest JDBC connection pool.
+  # Spring Boot auto-configures it. These settings matter for prod:
+  # - maximum-pool-size: don't set too high — PostgreSQL default max is 100
+  # - connection-timeout: fail fast rather than queue requests indefinitely
+  # - idle-timeout: return unused connections to the pool
+  # ============================================================
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/docprocessor}
+    username: ${DB_USERNAME:docuser}
+    password: ${DB_PASSWORD:docpass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      pool-name: DocProcessorHikariPool
+
+  jpa:
+    hibernate:
+      # WHY validate, not update?
+      # In production, NEVER let Hibernate auto-alter your schema.
+      # Flyway owns all schema changes. "validate" ensures the entity
+      # model matches the DB schema, failing fast if they diverge.
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 50  # batch inserts — critical for embedding storage
+
+  # ============================================================
+  # FLYWAY — Runs migrations on startup
+  # WHY enabled: true? You want schema migrations to be automatic.
+  # If migration fails, the app refuses to start — this is correct
+  # behavior. A broken migration should block deployment.
+  # ============================================================
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # ============================================================
+  # KAFKA
+  # WHY StringSerializer for key and JsonSerializer for value?
+  # Keys are usually document IDs (strings). Values are event
+  # objects we want as JSON so they're human-readable in Kafka UI
+  # and language-agnostic if other services need to consume them.
+  # ============================================================
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # WHY acks=all? Guarantees the message is written to ALL in-sync
+      # replicas before the producer gets acknowledgment. Slower but safe.
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true  # prevents duplicate messages on retry
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      group-id: document-processing-group
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "com.asyncai.docprocessor.*"
+
+  # ============================================================
+  # REDIS
+  # ============================================================
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 4
+          min-idle: 1
+
+  # ============================================================
+  # FILE UPLOADS — Multipart config
+  # max-file-size must match your API contract. 50MB covers most
+  # enterprise documents. Set max-request-size slightly higher
+  # to account for form field overhead.
+  # ============================================================
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 55MB
+
+# ============================================================
+# LANGCHAIN4J / OPENAI
+# WHY use environment variable for API key?
+# NEVER hardcode secrets in config files that go to Git.
+# In Kubernetes, these come from Secrets mounted as env vars.
+# ============================================================
+langchain4j:
+  open-ai:
+    chat-model:
+      api-key: ${OPENAI_API_KEY}
+      model-name: gpt-4-turbo-preview
+      temperature: 0.3   # lower = more deterministic, better for Q&A
+      max-tokens: 2048
+    embedding-model:
+      api-key: ${OPENAI_API_KEY}
+      model-name: text-embedding-3-small  # cheaper, still excellent quality
+
+# ============================================================
+# ACTUATOR — Expose specific endpoints
+# WHY NOT expose everything? Security. Never expose /actuator/env
+# or /actuator/beans in production — they leak config secrets.
+# K8s needs: /actuator/health (liveness), /actuator/health/readiness
+# Prometheus needs: /actuator/prometheus
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true   # enables /health/liveness and /health/readiness
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# ============================================================
+# SPRINGDOC / SWAGGER
+# Accessible at: http://localhost:8080/swagger-ui.html
+# ============================================================
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+
+# ============================================================
+# LOGGING
+# WHY structured logging (not printf-style)?
+# In production, logs go to Elasticsearch/Splunk. Structured logs
+# (JSON) let you query: find all logs where documentId=X AND level=ERROR.
+# Unstructured logs require regex parsing — slow and brittle.
+# ============================================================
+logging:
+  level:
+    com.asyncai.docprocessor: DEBUG
+    org.springframework.kafka: INFO
+    org.hibernate.SQL: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# ============================================================
+# APPLICATION-SPECIFIC CONFIG
+# Centralizing these here (vs hardcoding in classes) lets you
+# tune behavior per environment without changing code.
+# ============================================================
+app:
+  kafka:
+    topics:
+      document-uploaded: document.uploaded
+      document-processed: document.processed
+      document-dlq: document.uploaded.DLQ
+  storage:
+    upload-dir: ${UPLOAD_DIR:/tmp/uploads}
+  processing:
+    chunk-size: 512      # tokens per chunk
+    chunk-overlap: 50    # overlap between consecutive chunks
+  vector-store:
+    dimensions: 1536     # text-embedding-3-small output dimension
+    table-name: document_embeddings
