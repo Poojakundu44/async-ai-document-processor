@@ -27,21 +27,21 @@
     <properties>
         <java.version>17</java.version>
         <!-- Pin versions not managed by Spring Boot BOM -->
-        <!--   <langchain4j.version>1.1.0</langchain4j.version> -->
-           <flyway.version>10.8.1</flyway.version>
-           <springdoc.version>2.3.0</springdoc.version>
-           <testcontainers.version>1.19.6</testcontainers.version>
-       </properties>
+        <langchain4j.version>1.1.0</langchain4j.version>
+        <flyway.version>10.8.1</flyway.version>
+        <springdoc.version>2.3.0</springdoc.version>
+        <testcontainers.version>1.19.6</testcontainers.version>
+    </properties>
 
-       <dependencies>
+    <dependencies>
 
-           <!-- ============================================================
-                CORE WEB — Spring MVC REST APIs
-                WHY: Gives us @RestController, @RequestMapping, embedded Tomcat.
-                We chose Spring MVC (not WebFlux) because our team knows it,
-                most libraries support it, and we handle async via Kafka not
-                reactive streams.
-           ============================================================ -->
+        <!-- ============================================================
+             CORE WEB — Spring MVC REST APIs
+             WHY: Gives us @RestController, @RequestMapping, embedded Tomcat.
+             We chose Spring MVC (not WebFlux) because our team knows it,
+             most libraries support it, and we handle async via Kafka not
+             reactive streams.
+        ============================================================ -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
