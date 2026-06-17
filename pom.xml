@@ -27,14 +27,18 @@
     <properties>
         <java.version>17</java.version>
         <!-- Pin versions not managed by Spring Boot BOM -->
-        <langchain4j.version>1.1.0</langchain4j.version>
+        <langchain4j.version>1.1.0-beta7</langchain4j.version>
         <flyway.version>10.8.1</flyway.version>
         <springdoc.version>2.3.0</springdoc.version>
         <testcontainers.version>1.19.6</testcontainers.version>
     </properties>
 
     <dependencies>
-
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <!-- ============================================================
              CORE WEB — Spring MVC REST APIs
              WHY: Gives us @RestController, @RequestMapping, embedded Tomcat.

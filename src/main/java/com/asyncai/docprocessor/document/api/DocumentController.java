@@ -1,6 +1,7 @@
 package com.asyncai.docprocessor.document.api;
 
 import com.asyncai.docprocessor.document.service.DocumentService;
+import com.asyncai.docprocessor.processing.DocumentProcessingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -17,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.UUID;
 
@@ -39,43 +41,44 @@ import java.util.UUID;
 public class DocumentController {
 
     private final DocumentService documentService;
-
-    /**
+    private final DocumentProcessingService documentProcessingService;    /**
      * File upload uses multipart/form-data (not JSON body) because:
      * 1. Binary files can't be cleanly embedded in JSON without base64 encoding
      * 2. Base64 increases payload size by ~33%
      * 3. Multipart is the HTTP standard for file uploads
      */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @ResponseStatus(HttpStatus.ACCEPTED)  // 202: request accepted, processing async
+    @ResponseStatus(HttpStatus.ACCEPTED)
     @Operation(
-        summary = "Upload a document for AI processing",
-        description = "Accepts PDF, DOCX, or TXT files. Processing happens asynchronously via Kafka.",
-        responses = {
-            @ApiResponse(responseCode = "202", description = "Document accepted for processing"),
-            @ApiResponse(responseCode = "400", description = "Invalid file or request"),
-            @ApiResponse(responseCode = "413", description = "File too large")
-        }
+            summary = "Upload a document for AI processing",
+            description = "Accepts PDF, DOCX, or TXT files. Processing happens asynchronously via Kafka/RAG pipeline.",
+            responses = {
+                    @ApiResponse(responseCode = "202", description = "Document accepted for processing"),
+                    @ApiResponse(responseCode = "400", description = "Invalid file or request"),
+                    @ApiResponse(responseCode = "413", description = "File too large")
+            }
     )
     public ResponseEntity<DocumentDTOs.UploadResponse> uploadDocument(
             @RequestHeader("X-User-Id") String userId,
             @RequestPart("file") MultipartFile file,
-            @RequestPart(value = "metadata", required = false)
-            @Valid DocumentDTOs.UploadRequest metadata
+            @RequestParam(value = "description", required = false) String description
     ) {
         log.info("Upload request: user={}, file={}, size={}",
                 userId, file.getOriginalFilename(), file.getSize());
 
-        if (metadata == null) {
-            metadata = DocumentDTOs.UploadRequest.builder()
-                    .description(file.getOriginalFilename())
-                    .build();
-        }
+        DocumentDTOs.UploadRequest metadata = DocumentDTOs.UploadRequest.builder()
+                .description(
+                        description != null && !description.isBlank()
+                                ? description
+                                : file.getOriginalFilename()
+                )
+                .build();
 
-        DocumentDTOs.UploadResponse response = documentService.uploadDocument(userId, file, metadata);
+        DocumentDTOs.UploadResponse response =
+                documentService.uploadDocument(userId, file, metadata);
+
         return ResponseEntity.accepted().body(response);
     }
-
     @GetMapping("/{documentId}")
     @Operation(summary = "Get document details and processing status")
     public ResponseEntity<DocumentDTOs.DocumentResponse> getDocument(
@@ -101,5 +104,15 @@ public class DocumentController {
         int cappedSize = Math.min(size, 100);
         Pageable pageable = PageRequest.of(page, cappedSize);
         return ResponseEntity.ok(documentService.getDocuments(userId, pageable));
+    }
+
+
+    @PostMapping("/{documentId}/process")
+    public ResponseEntity<String> processDocument(
+            @RequestHeader("X-User-Id") String userId,
+            @PathVariable UUID documentId) {
+
+        documentProcessingService.processDocument(documentId, userId);
+        return ResponseEntity.ok("Document processed successfully");
     }
 }

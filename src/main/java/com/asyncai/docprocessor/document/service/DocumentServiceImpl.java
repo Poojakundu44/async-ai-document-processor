@@ -95,8 +95,11 @@ public class DocumentServiceImpl implements DocumentService {
                 .uploadedAt(Instant.now())
                 .build();
 
-        eventProducer.publishDocumentUploaded(event);
-
+        try {
+            eventProducer.publishDocumentUploaded(event);
+        } catch (Exception e) {
+            log.warn("Kafka is not available locally. Skipping event publish for documentId={}", document.getId(), e);
+        }
         return DocumentDTOs.UploadResponse.builder()
                 .documentId(document.getId())
                 .status(document.getStatus())
